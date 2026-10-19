@@ -1,0 +1,557 @@
+
+"use client";
+
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
+
+type Category = {
+  id: string;
+  name: string;
+};
+
+type Item = {
+  id: string;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  purchasePrice: number | string | null;
+  purchaseDate: string | null;
+  warrantyExpiry: string | null;
+  categoryId: string | null;
+  notes: string | null;
+  category?: Category | null;
+};
+
+type ApiResult<T> = {
+  success: boolean;
+  message?: string;
+  data: T;
+};
+
+const inputClass =
+  "mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+
+function toDateInput(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.slice(0, 10);
+}
+
+export default function EditItemPage() {
+  const params = useParams<{ id: string }>();
+  const itemId = params.id;
+  const router = useRouter();
+
+  const today = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Bangkok",
+  });
+
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>(
+    {}
+  );
+
+  const [form, setForm] = useState({
+    name: "",
+    brand: "",
+    model: "",
+    serialNumber: "",
+    purchasePrice: "",
+    purchaseDate: "",
+    warrantyExpiry: "",
+    categoryId: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const [itemResponse, categoryResponse] = await Promise.all([
+          fetch(`/api/items/${itemId}`, { cache: "no-store" }),
+          fetch("/api/categories", { cache: "no-store" }),
+        ]);
+
+        const itemResult =
+          (await itemResponse.json()) as ApiResult<Item>;
+
+        const categoryResult =
+          (await categoryResponse.json()) as ApiResult<Category[]>;
+
+        if (!itemResponse.ok || !itemResult.success) {
+          throw new Error(
+            itemResult.message || "ไม่สามารถโหลดข้อมูลสิ่งของได้"
+          );
+        }
+
+        if (!categoryResponse.ok || !categoryResult.success) {
+          throw new Error(
+            categoryResult.message || "ไม่สามารถโหลดหมวดหมู่ได้"
+          );
+        }
+
+        if (cancelled) return;
+
+        const item = itemResult.data;
+
+        setForm({
+          name: item.name ?? "",
+          brand: item.brand ?? "",
+          model: item.model ?? "",
+          serialNumber: item.serialNumber ?? "",
+          purchasePrice:
+            item.purchasePrice == null
+              ? ""
+              : String(item.purchasePrice),
+          purchaseDate: toDateInput(item.purchaseDate),
+          warrantyExpiry: toDateInput(item.warrantyExpiry),
+          categoryId: item.categoryId ?? item.category?.id ?? "",
+          notes: item.notes ?? "",
+        });
+
+        setCategories(categoryResult.data);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "เกิดข้อผิดพลาดในการโหลดข้อมูล"
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [itemId]);
+
+  function handleChange(field: keyof typeof form, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+    setError("");
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setFieldErrors({});
+
+    if (!form.name.trim()) {
+      setFieldErrors({ name: "กรุณาระบุชื่อสิ่งของ" });
+      return;
+    }
+
+    if (
+      form.purchasePrice.trim() !== "" &&
+      (!Number.isFinite(Number(form.purchasePrice)) ||
+        Number(form.purchasePrice) < 0)
+    ) {
+      setFieldErrors({
+        purchasePrice: "ราคาต้องเป็นตัวเลขและไม่ติดลบ",
+      });
+      return;
+    }
+
+    if (form.purchaseDate && form.purchaseDate > today) {
+      setFieldErrors({
+        purchaseDate: "วันที่ซื้อต้องไม่เป็นวันในอนาคต",
+      });
+      return;
+    }
+
+    if (
+      form.purchaseDate &&
+      form.warrantyExpiry &&
+      form.warrantyExpiry < form.purchaseDate
+    ) {
+      setFieldErrors({
+        warrantyExpiry: "วันหมดประกันต้องไม่ก่อนวันที่ซื้อ",
+      });
+      return;
+    }
+
+    const payload = {
+      name: form.name.trim(),
+      brand: form.brand.trim() || null,
+      model: form.model.trim() || null,
+      serialNumber: form.serialNumber.trim() || null,
+      purchasePrice:
+        form.purchasePrice.trim() === ""
+          ? null
+          : Number(form.purchasePrice),
+      purchaseDate: form.purchaseDate
+        ? `${form.purchaseDate}T00:00:00.000Z`
+        : null,
+      warrantyExpiry: form.warrantyExpiry
+        ? `${form.warrantyExpiry}T00:00:00.000Z`
+        : null,
+      categoryId: form.categoryId || null,
+      notes: form.notes.trim() || null,
+    };
+
+    setSaving(true);
+
+    try {
+      const response = await fetch(`/api/items/${itemId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const result =
+        (await response.json()) as ApiResult<Item>;
+
+      if (!response.ok || !result.success) {
+        throw new Error(
+          result.message || "ไม่สามารถแก้ไขข้อมูลสิ่งของได้"
+        );
+      }
+
+      router.push(`/items/${itemId}`);
+      router.refresh();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "เกิดข้อผิดพลาดในการบันทึกข้อมูล"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function fieldError(field: string) {
+    return fieldErrors[field] ? (
+      <p className="mt-1 text-sm text-red-600">
+        {fieldErrors[field]}
+      </p>
+    ) : null;
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-3xl animate-pulse space-y-4">
+        <div className="h-4 w-36 rounded bg-gray-200" />
+        <div className="h-8 w-48 rounded bg-gray-200" />
+        <div className="h-96 rounded-xl border border-gray-200 bg-white" />
+      </div>
+    );
+  }
+
+  if (error && !form.name) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <Link
+          href="/items"
+          className="text-sm text-blue-700 hover:underline"
+        >
+          ← กลับไป My Items
+        </Link>
+
+        <div
+          role="alert"
+          className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {error}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => router.refresh()}
+          className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          โหลดหน้าใหม่
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <div className="mb-6">
+        <Link
+          href={`/items/${itemId}`}
+          className="text-sm text-blue-700 hover:underline"
+        >
+          ← กลับไปหน้ารายละเอียด
+        </Link>
+
+        <h1 className="mt-3 text-2xl font-bold text-gray-900">
+          แก้ไขสิ่งของ
+        </h1>
+
+        <p className="mt-1 text-sm text-gray-500">
+          แก้ไขรายละเอียดสิ่งของและข้อมูลการรับประกัน
+        </p>
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          {error}
+        </div>
+      )}
+
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-7"
+      >
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            ข้อมูลสิ่งของ
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="name"
+                className="text-sm font-medium text-gray-700"
+              >
+                ชื่อสิ่งของ <span className="text-red-600">*</span>
+              </label>
+
+              <input
+                id="name"
+                required
+                maxLength={100}
+                value={form.name}
+                onChange={(e) => handleChange("name", e.target.value)}
+                placeholder="เช่น โน้ตบุ๊ก, โทรศัพท์มือถือ"
+                className={inputClass}
+              />
+
+              {fieldError("name")}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="brand"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  ยี่ห้อ
+                </label>
+
+                <input
+                  id="brand"
+                  maxLength={100}
+                  value={form.brand}
+                  onChange={(e) => handleChange("brand", e.target.value)}
+                  placeholder="เช่น ASUS, Apple"
+                  className={inputClass}
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="model"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  รุ่น
+                </label>
+
+                <input
+                  id="model"
+                  maxLength={100}
+                  value={form.model}
+                  onChange={(e) => handleChange("model", e.target.value)}
+                  placeholder="ระบุรุ่นของสิ่งของ"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="serialNumber"
+                className="text-sm font-medium text-gray-700"
+              >
+                หมายเลขซีเรียล (Serial Number)
+              </label>
+
+              <input
+                id="serialNumber"
+                maxLength={100}
+                value={form.serialNumber}
+                onChange={(e) =>
+                  handleChange("serialNumber", e.target.value)
+                }
+                placeholder="หมายเลขประจำเครื่อง"
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="categoryId"
+                className="text-sm font-medium text-gray-700"
+              >
+                หมวดหมู่
+              </label>
+
+              <select
+                id="categoryId"
+                value={form.categoryId}
+                onChange={(e) =>
+                  handleChange("categoryId", e.target.value)
+                }
+                className={inputClass}
+              >
+                <option value="">ไม่ระบุหมวดหมู่</option>
+
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <hr className="border-gray-200" />
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            ราคาและการรับประกัน
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="purchasePrice"
+                className="text-sm font-medium text-gray-700"
+              >
+                ราคาที่ซื้อ (บาท)
+              </label>
+
+              <input
+                id="purchasePrice"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.purchasePrice}
+                onChange={(e) =>
+                  handleChange("purchasePrice", e.target.value)
+                }
+                placeholder="เช่น 25900"
+                className={inputClass}
+              />
+
+              {fieldError("purchasePrice")}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="purchaseDate"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  วันที่ซื้อ
+                </label>
+
+                <input
+                  id="purchaseDate"
+                  type="date"
+                  max={today}
+                  value={form.purchaseDate}
+                  onChange={(e) =>
+                    handleChange("purchaseDate", e.target.value)
+                  }
+                  className={inputClass}
+                />
+
+                {fieldError("purchaseDate")}
+              </div>
+
+              <div>
+                <label
+                  htmlFor="warrantyExpiry"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  วันหมดประกัน
+                </label>
+
+                <input
+                  id="warrantyExpiry"
+                  type="date"
+                  min={form.purchaseDate || undefined}
+                  value={form.warrantyExpiry}
+                  onChange={(e) =>
+                    handleChange("warrantyExpiry", e.target.value)
+                  }
+                  className={inputClass}
+                />
+
+                {fieldError("warrantyExpiry")}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <hr className="border-gray-200" />
+
+        <section>
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">
+            หมายเหตุเพิ่มเติม
+          </h2>
+
+          <label
+            htmlFor="notes"
+            className="text-sm font-medium text-gray-700"
+          >
+            หมายเหตุ
+          </label>
+
+          <textarea
+            id="notes"
+            rows={4}
+            maxLength={1000}
+            value={form.notes}
+            onChange={(e) => handleChange("notes", e.target.value)}
+            placeholder="รายละเอียดเพิ่มเติม เช่น สภาพสิ่งของหรือร้านที่ซื้อ"
+            className={inputClass}
+          />
+
+          <p className="mt-1 text-right text-xs text-gray-500">
+            {form.notes.length}/1000 ตัวอักษร
+          </p>
+        </section>
+
+        <div className="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:justify-end">
+          <Link
+            href={`/items/${itemId}`}
+            className="rounded-lg border border-gray-300 px-5 py-2.5 text-center text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            ยกเลิก
+          </Link>
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

@@ -1,0 +1,116 @@
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role      @default(USER)
+
+  accounts   Account[]
+  sessions   Session[]
+  items      Item[]
+  categories Category[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  description String?  @db.Text
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       Item[]
+  createdAt   DateTime @default(now())
+
+  // ชื่อหมวดหมู่ส่วนตัวห้ามซ้ำภายในผู้ใช้คนเดียวกัน
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Item {
+  id             String    @id @default(cuid())
+  name           String
+  brand          String?
+  model          String?
+  serialNumber   String?
+  purchasePrice  Decimal?  @db.Decimal(10, 2)
+  purchaseDate   DateTime?
+  warrantyExpiry DateTime?
+  notes          String?
+
+  userId     String
+  categoryId String?
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  repairRecords RepairRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model RepairRecord {
+  id          String   @id @default(cuid())
+  itemId      String
+  repairDate  DateTime @default(now())
+  description String
+  cost        Decimal? @db.Decimal(10, 2)
+  notes       String?
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+}
