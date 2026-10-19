@@ -244,7 +244,7 @@ export default function DashboardPage() {
           </h1>
 
           <p className="mt-2 text-sm text-gray-500">
-            ภาพรวมสิ่งของและการรับประกันของมึง
+            ภาพรวมสิ่งของและการรับประกันของคุณ
           </p>
         </div>
 
@@ -422,7 +422,7 @@ export default function DashboardPage() {
             </p>
 
             <p className="mt-2 text-sm text-gray-500">
-              เริ่มต้นด้วยการเพิ่มสิ่งของชิ้นแรกของมึง
+              เริ่มต้นด้วยการเพิ่มสิ่งของชิ้นแรกของคุณ
             </p>
 
             <Link
